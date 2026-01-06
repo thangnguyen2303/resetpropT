@@ -1,4 +1,4 @@
-name: Build Stealth ResetpropT with NDK-Build
+name: Build Stealth ResetpropT Final
 
 on:
   workflow_dispatch:
@@ -13,57 +13,51 @@ jobs:
           repository: 'thangnguyen2303/resetpropT'
           fetch-depth: 0
 
-      - name: Create Missing sp.mk & Patch Source
+      - name: Fix and Build
         run: |
-          # 1. Tự tạo file sp.mk để định nghĩa module systemproperties bị thiếu
-          # Chúng ta sẽ gom các file xử lý property vào module này
-          cat <<EOF > jni/sp.mk
-          include \$(CLEAR_VARS)
-          LOCAL_MODULE := systemproperties
-          # Tự động tìm file cpp liên quan đến system properties trong jni
-          LOCAL_SRC_FILES := \$(notdir \$(wildcard \$(LOCAL_PATH)/system_property*.cpp))
-          LOCAL_C_INCLUDES := \$(LOCAL_PATH)
-          include \$(BUILD_STATIC_LIBRARY)
-          EOF
-
-          # 2. Sửa lỗi include trong Android.mk nếu đường dẫn bị sai
-          sed -i 's/LOCAL_STATIC_LIBRARIES := libsystemproperties/LOCAL_STATIC_LIBRARIES := systemproperties/g' jni/Android.mk
-
-      - name: Stealth Patching (Silent Mode)
-        run: |
+          # 1. Chuyển vào thư mục jni
           cd jni
-          # Chèn Macro vô hiệu hóa log vào header để tàng hình
-          # Dùng footer injection để tránh xung đột với header hệ thống
-          sed -i '$a #define printf(...) (void)0' resetprop.hpp
-          sed -i '$a #define fprintf(...) (void)0' resetprop.hpp
           
-          # Đổi tên nhận diện chuỗi
+          # 2. Tạo file sp.mk với nội dung chuẩn (sử dụng dấu nháy đơn để bảo vệ biến $)
+          echo 'include $(CLEAR_VARS)' > sp.mk
+          echo 'LOCAL_MODULE := systemproperties' >> sp.mk
+          echo 'LOCAL_SRC_FILES := system_property_api.cpp' >> sp.mk
+          echo 'LOCAL_C_INCLUDES := $(LOCAL_PATH)/system_properties/include' >> sp.mk
+          echo 'include $(BUILD_STATIC_LIBRARY)' >> sp.mk
+
+          # 3. Patch Android.mk để khớp tên module (bỏ tiền tố lib nếu có)
+          sed -i 's/libsystemproperties/systemproperties/g' Android.mk
+          
+          # 4. Stealth Patching: Silent mode
+          sed -i '1i #define printf(...) (void)0' resetprop.hpp
+          sed -i '1i #define fprintf(...) (void)0' resetprop.hpp
           sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
 
-      - name: Build with ndk-build
-        run: |
-          # Chạy ndk-build từ thư mục gốc
+          # 5. Quay lại thư mục gốc để chạy ndk-build
+          cd ..
+          
+          # 6. Chạy ndk-build với cấu hình cưỡng ép
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
             NDK_PROJECT_PATH=. \
-            APP_BUILD_SCRIPT=./jni/Android.mk \
+            APP_BUILD_SCRIPT=$(pwd)/jni/Android.mk \
             APP_ABI=arm64-v8a \
             APP_PLATFORM=android-33 \
-            NDK_OUT=./obj \
-            NDK_LIBS_OUT=./libs \
-            APP_ALLOW_MISSING_DEPS=true \
+            NDK_OUT=$(pwd)/obj \
+            NDK_LIBS_OUT=$(pwd)/libs \
             V=1
 
       - name: Verify Binary
         run: |
-          # Tìm file binary resetprop trong thư mục libs
+          # Tìm file resetprop trong thư mục libs
           BINARY=$(find libs -name "resetprop" -type f | head -n 1)
           if [ -f "$BINARY" ]; then
             cp "$BINARY" ./miui_sys_helper
             chmod +x ./miui_sys_helper
+            echo "SUCCESS: Binary created."
             file ./miui_sys_helper
           else
-            echo "Build failed! Danh sách file trong jni:"
-            ls -R jni
+            echo "ERROR: Build failed. Directory structure below:"
+            ls -R
             exit 1
           fi
 
