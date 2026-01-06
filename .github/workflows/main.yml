@@ -13,6 +13,21 @@ jobs:
           repository: 'thangnguyen2303/resetpropT'
           fetch-depth: 0
 
+      - name: Create Missing sp.mk (Fix No rule to make target)
+        run: |
+          # Tạo file sp.mk để định nghĩa module systemproperties
+          # Dựa trên cấu trúc Android.mk của bạn, module này cần được đăng ký chính thức
+          cat <<EOF > jni/sp.mk
+          include \$(CLEAR_VARS)
+          LOCAL_MODULE := systemproperties
+          LOCAL_SRC_FILES := system_property_api.cpp
+          LOCAL_C_INCLUDES := \$(LOCAL_PATH)/system_properties/include
+          include \$(BUILD_STATIC_LIBRARY)
+          EOF
+          
+          # Kiểm tra xem file đã được tạo chưa
+          ls -l jni/sp.mk
+
       - name: Stealth Patching (Silent Mode)
         run: |
           cd jni
@@ -24,8 +39,7 @@ jobs:
 
       - name: Build with ndk-build
         run: |
-          # Chạy ndk-build với cờ cho phép thiếu module (nếu sp.mk không định nghĩa libsystemproperties đúng cách)
-          # Hoặc nếu libsystemproperties là thư viện hệ thống đã có sẵn trong sysroot
+          # Chạy ndk-build từ thư mục gốc
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=./jni/Android.mk \
@@ -44,8 +58,7 @@ jobs:
             file ./miui_sys_helper
           else
             echo "Build failed! Binary not found."
-            # Debug: Xem file sp.mk có nội dung gì
-            cat jni/sp.mk || echo "sp.mk not found"
+            ls -R jni
             exit 1
           fi
 
