@@ -13,48 +13,40 @@ jobs:
           repository: 'thangnguyen2303/resetpropT'
           fetch-depth: 0
 
-      - name: Setup NDK
-        uses: nwidart/setup-ndk@v1
-        with:
-          ndk-version: r26b
-
       - name: Stealth Patching (Silent Mode)
         run: |
           cd jni
-          # Chèn vô hiệu hóa log vào header chính để không làm hỏng cú pháp C
-          # Cách này an toàn hơn cho cả file .c của nanopb và file .cpp
+          # Chèn vô hiệu hóa log vào header chính
+          # Sử dụng sed chèn vào dòng đầu tiên để đảm bảo tàng hình
           sed -i '1i #define printf(...) (void)0' resetprop.hpp
           sed -i '1i #define fprintf(...) (void)0' resetprop.hpp
           
-          # Đổi tên module để tàng hình
+          # Đổi tên nhận diện module để tránh bị app quét chuỗi "resetprop"
           sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
 
       - name: Build with ndk-build
         run: |
-          # Chạy ndk-build ngay trong thư mục gốc
-          # APP_ABI=arm64-v8a: Chỉ build cho máy 64bit (Xiaomi đời mới)
-          # APP_PLATFORM=android-33: Tương thích Android 13/14
-          $ANDROID_NDK_ROOT/ndk-build \
-            -C . \
+          # GitHub Runner Ubuntu đã cài sẵn NDK tại $ANDROID_NDK_LATEST_HOME hoặc $ANDROID_NDK_HOME
+          # Chúng ta sử dụng lệnh trực tiếp từ đường dẫn đó
+          ${ANDROID_NDK_LATEST_HOME}/ndk-build \
+            -C ./jni \
             APP_ABI=arm64-v8a \
             APP_PLATFORM=android-33 \
             NDK_PROJECT_PATH=. \
-            NDK_APPLICATION_MK=Application.mk || \
-          $ANDROID_NDK_ROOT/ndk-build \
-            -C . \
-            APP_ABI=arm64-v8a \
-            APP_PLATFORM=android-33
+            V=1
 
       - name: Verify Binary
         run: |
-          # ndk-build sẽ xuất file vào thư mục libs/arm64-v8a/
-          BINARY_PATH=$(find libs -name "resetprop" -type f)
+          # ndk-build thường xuất file vào thư mục libs/arm64-v8a/
+          # Chúng ta tìm kiếm file có tên 'resetprop' như trong LOCAL_MODULE
+          BINARY_PATH=$(find . -name "resetprop" -type f)
           if [ -z "$BINARY_PATH" ]; then
             echo "Build failed, binary not found!"
             ls -R
             exit 1
           fi
           cp "$BINARY_PATH" ./miui_sys_helper
+          chmod +x ./miui_sys_helper
           file ./miui_sys_helper
 
       - name: Upload Binary
