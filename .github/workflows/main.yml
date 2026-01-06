@@ -15,39 +15,40 @@ jobs:
 
       - name: Stealth Patching (Silent Mode)
         run: |
+          # Di chuyển vào jni để sửa file
           cd jni
-          # Chèn vô hiệu hóa log vào header chính
-          # Sử dụng sed chèn vào dòng đầu tiên để đảm bảo tàng hình
+          # Chèn Macro vô hiệu hóa log vào header chính
           sed -i '1i #define printf(...) (void)0' resetprop.hpp
           sed -i '1i #define fprintf(...) (void)0' resetprop.hpp
-          
-          # Đổi tên nhận diện module để tránh bị app quét chuỗi "resetprop"
+          # Đổi tên nhận diện để tàng hình
           sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
 
       - name: Build with ndk-build
         run: |
-          # GitHub Runner Ubuntu đã cài sẵn NDK tại $ANDROID_NDK_LATEST_HOME hoặc $ANDROID_NDK_HOME
-          # Chúng ta sử dụng lệnh trực tiếp từ đường dẫn đó
+          # Chạy ndk-build từ thư mục gốc của dự án
+          # NDK sẽ tự tìm thư mục jni/ và file Android.mk bên trong
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
-            -C ./jni \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=./jni/Android.mk \
             APP_ABI=arm64-v8a \
             APP_PLATFORM=android-33 \
-            NDK_PROJECT_PATH=. \
-            V=1
+            NDK_OUT=./obj \
+            NDK_LIBS_OUT=./libs
 
       - name: Verify Binary
         run: |
-          # ndk-build thường xuất file vào thư mục libs/arm64-v8a/
-          # Chúng ta tìm kiếm file có tên 'resetprop' như trong LOCAL_MODULE
-          BINARY_PATH=$(find . -name "resetprop" -type f)
-          if [ -z "$BINARY_PATH" ]; then
-            echo "Build failed, binary not found!"
+          # Sau khi build, file nằm trong libs/arm64-v8a/
+          # Tên file lấy từ LOCAL_MODULE trong Android.mk là resetprop
+          if [ -f "./libs/arm64-v8a/resetprop" ]; then
+            cp "./libs/arm64-v8a/resetprop" ./miui_sys_helper
+            chmod +x ./miui_sys_helper
+            file ./miui_sys_helper
+            ls -al ./miui_sys_helper
+          else
+            echo "Build failed! Binary not found at ./libs/arm64-v8a/resetprop"
             ls -R
             exit 1
           fi
-          cp "$BINARY_PATH" ./miui_sys_helper
-          chmod +x ./miui_sys_helper
-          file ./miui_sys_helper
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
