@@ -19,31 +19,42 @@ jobs:
           unzip -q android-ndk-r26b-linux.zip
           echo "ANDROID_NDK_ROOT=$(pwd)/android-ndk-r26b" >> $GITHUB_ENV
 
-      - name: Stealth Patching & Compile
+      - name: Fetch Missing Bionic Headers
         run: |
-          # 1. Truy cập vào thư mục jni
+          # Tạo cấu trúc thư mục để bù đắp các file header hệ thống bị thiếu trong repo
+          mkdir -p jni/api jni/system_properties
+          
+          # Tải các header thiết yếu từ Magisk/Bionic (đảm bảo biên dịch được)
+          wget -q https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/system_properties/include/api/_system_properties.h -O jni/api/_system_properties.h
+          wget -q https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/system_properties/include/system_properties/prop_info.h -O jni/system_properties/prop_info.h
+          wget -q https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/system_properties/include/system_properties/prop_area.h -O jni/system_properties/prop_area.h
+
+      - name: Stealth Patching (Safe Method)
+        run: |
           cd jni
+          # Thay vì dùng -D, chúng ta chèn Macro vào cuối file header resetprop.hpp 
+          # Điều này đảm bảo các header hệ thống đã load xong mới bị vô hiệu hóa log
+          echo -e "\n#define printf(...) (void)0\n#define fprintf(...) (void)0" >> resetprop.hpp
           
-          # 2. Stealth Patching: Đổi tên định danh
-          sed -i 's/"resetprop"/"sys_helper"/g' main.cpp || true
-          
-          # 3. Thiết lập Compiler
+          # Đổi tên chuỗi tàng hình
+          sed -i 's/"resetprop"/"sys_helper"/g' *.cpp || true
+
+      - name: Compile Static Binary
+        run: |
+          cd jni
           export TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
           export CLANG=$TOOLCHAIN/bin/aarch64-linux-android33-clang++
-          
-          # 4. Biên dịch Static
-          # -I. để lấy các file .h trong jni
-          # Cần thêm -D_REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_ để mở khóa các header hệ thống
+
+          # Chỉ compile những file core quan trọng, bỏ qua persist.cpp nếu nó gây lỗi pb.h
+          # Repo này dùng #include "system_property_api.cpp" nên ta không liệt kê nó trong danh sách compile
           $CLANG \
             -I . \
-            *.cpp \
+            resetprop.cpp \
             -std=c++17 \
             -Os \
             -static \
             -D_GNU_SOURCE \
             -D_REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_ \
-            -D'printf(...)=(void)0' \
-            -D'fprintf(...)=(void)0' \
             -fdata-sections -ffunction-sections \
             -Wl,--gc-sections \
             -fvisibility=hidden \
@@ -58,7 +69,8 @@ jobs:
             file miui_sys_helper
             ls -al miui_sys_helper
           else
-            echo "Build failed!"
+            echo "Build failed! Checking directory content:"
+            ls -R
             exit 1
           fi
 
