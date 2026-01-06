@@ -19,25 +19,23 @@ jobs:
           unzip -q android-ndk-r26b-linux.zip
           echo "ANDROID_NDK_ROOT=$(pwd)/android-ndk-r26b" >> $GITHUB_ENV
 
-      - name: Fetch Missing Bionic Headers
+      - name: Patch Missing Headers (Fix 404)
         run: |
-          # Tạo cấu trúc thư mục để bù đắp các file header hệ thống bị thiếu trong repo
           mkdir -p jni/api jni/system_properties
-          
-          # Tải các header thiết yếu từ Magisk/Bionic (đảm bảo biên dịch được)
-          wget -q https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/system_properties/include/api/_system_properties.h -O jni/api/_system_properties.h
-          wget -q https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/system_properties/include/system_properties/prop_info.h -O jni/system_properties/prop_info.h
-          wget -q https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/jni/system_properties/include/system_properties/prop_area.h -O jni/system_properties/prop_area.h
+          # Lấy header từ nguồn mirror ổn định của Android Bionic
+          wget -q https://raw.githubusercontent.com/aosp-mirror/platform_bionic/master/libc/system_properties/include/system_properties/prop_info.h -O jni/system_properties/prop_info.h
+          wget -q https://raw.githubusercontent.com/aosp-mirror/platform_bionic/master/libc/system_properties/include/system_properties/prop_area.h -O jni/system_properties/prop_area.h
+          # Tạo file _system_properties.h giả lập để thỏa mãn điều kiện include
+          echo "#include <sys/system_properties.h>" > jni/api/_system_properties.h
 
-      - name: Stealth Patching (Safe Method)
+      - name: Stealth Patching (Footer Injection)
         run: |
           cd jni
-          # Thay vì dùng -D, chúng ta chèn Macro vào cuối file header resetprop.hpp 
-          # Điều này đảm bảo các header hệ thống đã load xong mới bị vô hiệu hóa log
-          echo -e "\n#define printf(...) (void)0\n#define fprintf(...) (void)0" >> resetprop.hpp
-          
-          # Đổi tên chuỗi tàng hình
-          sed -i 's/"resetprop"/"sys_helper"/g' *.cpp || true
+          # Chèn Macro vào cuối file hpp để tránh xung đột với header hệ thống
+          sed -i '$a #define printf(...) (void)0' resetprop.hpp
+          sed -i '$a #define fprintf(...) (void)0' resetprop.hpp
+          # Đổi tên nhận diện để tàng hình
+          sed -i 's/"resetprop"/"sys_helper"/g' main.cpp || true
 
       - name: Compile Static Binary
         run: |
@@ -45,11 +43,11 @@ jobs:
           export TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
           export CLANG=$TOOLCHAIN/bin/aarch64-linux-android33-clang++
 
-          # Chỉ compile những file core quan trọng, bỏ qua persist.cpp nếu nó gây lỗi pb.h
-          # Repo này dùng #include "system_property_api.cpp" nên ta không liệt kê nó trong danh sách compile
+          # Biên dịch main.cpp và resetprop.cpp
+          # Bỏ qua persist.cpp (liên quan đến pb.h) và base.cpp nếu không cần thiết
           $CLANG \
             -I . \
-            resetprop.cpp \
+            main.cpp resetprop.cpp \
             -std=c++17 \
             -Os \
             -static \
@@ -69,7 +67,7 @@ jobs:
             file miui_sys_helper
             ls -al miui_sys_helper
           else
-            echo "Build failed! Checking directory content:"
+            echo "Build failed!"
             ls -R
             exit 1
           fi
