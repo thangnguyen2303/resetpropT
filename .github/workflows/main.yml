@@ -1,4 +1,4 @@
-name: Build Stealth ResetpropT Submodule Force
+name: Build Stealth ResetpropT Final Fix
 
 on:
   workflow_dispatch:
@@ -18,26 +18,30 @@ jobs:
         run: |
           cd jni
           
-          # 1. Stealth Patching: Silent mode
-          sed -i '1i #define printf(...) (void)0' resetprop.hpp
-          sed -i '1i #define fprintf(...) (void)0' resetprop.hpp
+          # 1. Stealth Patching AN TOÀN: 
+          # Sử dụng $a để chèn vào CUỐI file resetprop.hpp
+          # Điều này đảm bảo header hệ thống đã load xong mới bị redefine printf
+          sed -i '$a #define printf(...) (void)0' resetprop.hpp
+          sed -i '$a #define fprintf(...) (void)0' resetprop.hpp
+          
+          # 2. Đổi tên nhận diện tàng hình
           sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
 
-          # 2. Sửa Android.mk: Đảm bảo đường dẫn sp.mk là chính xác
-          # Nếu sp.mk nằm trong thư mục submodule system_properties, ta phải sửa lại:
+          # 3. Sửa đường dẫn sp.mk (đã xác định submodule ở jni/system_properties)
           if [ -f "system_properties/sp.mk" ]; then
              sed -i 's|include sp.mk|include system_properties/sp.mk|g' Android.mk
           fi
 
-          # 3. Chạy ndk-build với quyền cưỡng ép
+          # 4. Chạy ndk-build
+          # Thêm cờ -j cho phép build đa luồng nhanh hơn
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
+            -j$(nproc) \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=Android.mk \
             APP_ABI=arm64-v8a \
             APP_PLATFORM=android-33 \
             APP_ALLOW_MISSING_DEPS=true \
-            NDK_LIBS_OUT=../libs \
-            V=1
+            NDK_LIBS_OUT=../libs
 
       - name: Verify Binary
         run: |
@@ -46,10 +50,11 @@ jobs:
             cp "$BINARY" ./miui_sys_helper
             chmod +x ./miui_sys_helper
             echo "SUCCESS: Stealth binary created."
+            ls -al ./miui_sys_helper
             file ./miui_sys_helper
           else
-            echo "ERROR: Build failed. Checking submodule content to debug:"
-            ls -R jni/system_properties
+            echo "ERROR: Build failed. Directory structure:"
+            ls -R
             exit 1
           fi
 
