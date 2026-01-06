@@ -1,4 +1,4 @@
-name: Build Stealth Resetprop 5ec1cff
+name: Build Stealth ResetpropT
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          repository: '5ec1cff/resetprop'
+          repository: 'thangnguyen2303/resetpropT'
           fetch-depth: 0
 
       - name: Install NDK
@@ -21,8 +21,8 @@ jobs:
 
       - name: Stealth Patching & Compile
         run: |
-          # 1. Truy cập vào thư mục chứa code thực tế của repo này
-          cd src
+          # 1. Truy cập vào thư mục jni
+          cd jni
           
           # 2. Stealth Patching: Đổi tên định danh
           sed -i 's/"resetprop"/"sys_helper"/g' main.cpp || true
@@ -32,7 +32,8 @@ jobs:
           export CLANG=$TOOLCHAIN/bin/aarch64-linux-android33-clang++
           
           # 4. Biên dịch Static
-          # Chúng ta dùng -I . vì đang đứng trong src, nơi chứa các file .h
+          # -I. để lấy các file .h trong jni
+          # Cần thêm -D_REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_ để mở khóa các header hệ thống
           $CLANG \
             -I . \
             *.cpp \
@@ -40,6 +41,7 @@ jobs:
             -Os \
             -static \
             -D_GNU_SOURCE \
+            -D_REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_ \
             -D'printf(...)=(void)0' \
             -D'fprintf(...)=(void)0' \
             -fdata-sections -ffunction-sections \
@@ -56,8 +58,7 @@ jobs:
             file miui_sys_helper
             ls -al miui_sys_helper
           else
-            echo "Build failed, searching for binary..."
-            find . -name "miui_sys_helper"
+            echo "Build failed!"
             exit 1
           fi
 
