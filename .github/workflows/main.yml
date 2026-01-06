@@ -21,14 +21,18 @@ jobs:
 
       - name: Stealth Patching & Compile
         run: |
+          # 1. Truy cập vào thư mục chứa code thực tế của repo này
+          cd src
+          
+          # 2. Stealth Patching: Đổi tên định danh
+          sed -i 's/"resetprop"/"sys_helper"/g' main.cpp || true
+          
+          # 3. Thiết lập Compiler
           export TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
           export CLANG=$TOOLCHAIN/bin/aarch64-linux-android33-clang++
           
-          # 1. Stealth Patching: Đổi tên định danh để tránh bị soi chuỗi
-          sed -i 's/"resetprop"/"sys_helper"/g' main.cpp
-          
-          # 2. Biên dịch Static
-          # Bản này chỉ cần include thư mục gốc (.) là đủ
+          # 4. Biên dịch Static
+          # Chúng ta dùng -I . vì đang đứng trong src, nơi chứa các file .h
           $CLANG \
             -I . \
             *.cpp \
@@ -44,12 +48,18 @@ jobs:
             -fno-rtti \
             -fno-exceptions \
             -s \
-            -o miui_sys_helper
+            -o ../miui_sys_helper
 
       - name: Verify & Upload
         run: |
-          file miui_sys_helper
-          ls -al miui_sys_helper
+          if [ -f miui_sys_helper ]; then
+            file miui_sys_helper
+            ls -al miui_sys_helper
+          else
+            echo "Build failed, searching for binary..."
+            find . -name "miui_sys_helper"
+            exit 1
+          fi
 
       - name: Archive Binary
         uses: actions/upload-artifact@v4
