@@ -1,4 +1,4 @@
-name: Build Stealth ResetpropT
+name: Build Stealth ResetpropT with NDK-Build
 
 on:
   workflow_dispatch:
@@ -13,66 +13,51 @@ jobs:
           repository: 'thangnguyen2303/resetpropT'
           fetch-depth: 0
 
-      - name: Install NDK
-        run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
-          unzip -q android-ndk-r26b-linux.zip
-          echo "ANDROID_NDK_ROOT=$(pwd)/android-ndk-r26b" >> $GITHUB_ENV
+      - name: Setup NDK
+        uses: nwidart/setup-ndk@v1
+        with:
+          ndk-version: r26b
 
-      - name: Patch Missing Headers (Fix 404)
-        run: |
-          mkdir -p jni/api jni/system_properties
-          # Lấy header từ nguồn mirror ổn định của Android Bionic
-          wget -q https://raw.githubusercontent.com/aosp-mirror/platform_bionic/master/libc/system_properties/include/system_properties/prop_info.h -O jni/system_properties/prop_info.h
-          wget -q https://raw.githubusercontent.com/aosp-mirror/platform_bionic/master/libc/system_properties/include/system_properties/prop_area.h -O jni/system_properties/prop_area.h
-          # Tạo file _system_properties.h giả lập để thỏa mãn điều kiện include
-          echo "#include <sys/system_properties.h>" > jni/api/_system_properties.h
-
-      - name: Stealth Patching (Footer Injection)
+      - name: Stealth Patching (Silent Mode)
         run: |
           cd jni
-          # Chèn Macro vào cuối file hpp để tránh xung đột với header hệ thống
-          sed -i '$a #define printf(...) (void)0' resetprop.hpp
-          sed -i '$a #define fprintf(...) (void)0' resetprop.hpp
-          # Đổi tên nhận diện để tàng hình
-          sed -i 's/"resetprop"/"sys_helper"/g' main.cpp || true
+          # Chèn vô hiệu hóa log vào header chính để không làm hỏng cú pháp C
+          # Cách này an toàn hơn cho cả file .c của nanopb và file .cpp
+          sed -i '1i #define printf(...) (void)0' resetprop.hpp
+          sed -i '1i #define fprintf(...) (void)0' resetprop.hpp
+          
+          # Đổi tên module để tàng hình
+          sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
 
-      - name: Compile Static Binary
+      - name: Build with ndk-build
         run: |
-          cd jni
-          export TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
-          export CLANG=$TOOLCHAIN/bin/aarch64-linux-android33-clang++
+          # Chạy ndk-build ngay trong thư mục gốc
+          # APP_ABI=arm64-v8a: Chỉ build cho máy 64bit (Xiaomi đời mới)
+          # APP_PLATFORM=android-33: Tương thích Android 13/14
+          $ANDROID_NDK_ROOT/ndk-build \
+            -C . \
+            APP_ABI=arm64-v8a \
+            APP_PLATFORM=android-33 \
+            NDK_PROJECT_PATH=. \
+            NDK_APPLICATION_MK=Application.mk || \
+          $ANDROID_NDK_ROOT/ndk-build \
+            -C . \
+            APP_ABI=arm64-v8a \
+            APP_PLATFORM=android-33
 
-          # Biên dịch main.cpp và resetprop.cpp
-          # Bỏ qua persist.cpp (liên quan đến pb.h) và base.cpp nếu không cần thiết
-          $CLANG \
-            -I . \
-            main.cpp resetprop.cpp \
-            -std=c++17 \
-            -Os \
-            -static \
-            -D_GNU_SOURCE \
-            -D_REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_ \
-            -fdata-sections -ffunction-sections \
-            -Wl,--gc-sections \
-            -fvisibility=hidden \
-            -fno-rtti \
-            -fno-exceptions \
-            -s \
-            -o ../miui_sys_helper
-
-      - name: Verify & Upload
+      - name: Verify Binary
         run: |
-          if [ -f miui_sys_helper ]; then
-            file miui_sys_helper
-            ls -al miui_sys_helper
-          else
-            echo "Build failed!"
+          # ndk-build sẽ xuất file vào thư mục libs/arm64-v8a/
+          BINARY_PATH=$(find libs -name "resetprop" -type f)
+          if [ -z "$BINARY_PATH" ]; then
+            echo "Build failed, binary not found!"
             ls -R
             exit 1
           fi
+          cp "$BINARY_PATH" ./miui_sys_helper
+          file ./miui_sys_helper
 
-      - name: Archive Binary
+      - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
           name: miui_sys_helper_static
