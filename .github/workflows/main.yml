@@ -1,0 +1,58 @@
+name: Build Stealth Resetprop 5ec1cff
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          repository: '5ec1cff/resetprop'
+          fetch-depth: 0
+
+      - name: Install NDK
+        run: |
+          wget -q https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
+          unzip -q android-ndk-r26b-linux.zip
+          echo "ANDROID_NDK_ROOT=$(pwd)/android-ndk-r26b" >> $GITHUB_ENV
+
+      - name: Stealth Patching & Compile
+        run: |
+          export TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
+          export CLANG=$TOOLCHAIN/bin/aarch64-linux-android33-clang++
+          
+          # 1. Stealth Patching: Đổi tên định danh để tránh bị soi chuỗi
+          sed -i 's/"resetprop"/"sys_helper"/g' main.cpp
+          
+          # 2. Biên dịch Static
+          # Bản này chỉ cần include thư mục gốc (.) là đủ
+          $CLANG \
+            -I . \
+            *.cpp \
+            -std=c++17 \
+            -Os \
+            -static \
+            -D_GNU_SOURCE \
+            -D'printf(...)=(void)0' \
+            -D'fprintf(...)=(void)0' \
+            -fdata-sections -ffunction-sections \
+            -Wl,--gc-sections \
+            -fvisibility=hidden \
+            -fno-rtti \
+            -fno-exceptions \
+            -s \
+            -o miui_sys_helper
+
+      - name: Verify & Upload
+        run: |
+          file miui_sys_helper
+          ls -al miui_sys_helper
+
+      - name: Archive Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: miui_sys_helper_static
+          path: miui_sys_helper
