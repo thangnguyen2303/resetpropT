@@ -18,22 +18,22 @@ jobs:
         run: |
           cd jni
           
-          # 1. Tạo Application.mk cưỡng ép API 33 và Static STL
-          echo "APP_STL := libc++_static" > Application.mk
+          # 1. Tạo Application.mk với từ khóa chuẩn của NDK
+          # Sử dụng c++_static (KHÔNG phải libc++_static)
+          echo "APP_STL := c++_static" > Application.mk
           echo "APP_ABI := arm64-v8a" >> Application.mk
           echo "APP_PLATFORM := android-33" >> Application.mk
 
-          # 2. Patch trực tiếp persist.cpp để dùng mkstemps thay vì mkostemp nếu cần 
-          # Hoặc ép định nghĩa _GNU_SOURCE để bật mkostemp
+          # 2. Patch trực tiếp persist.cpp để bật các tính năng GNU (mkostemp)
           sed -i '1i #define _GNU_SOURCE' persist.cpp
 
-          # 3. Sửa sp.mk (đường dẫn submodule)
+          # 3. Sửa đường dẫn sp.mk
           if [ -f "system_properties/sp.mk" ]; then
              sed -i 's|include sp.mk|include system_properties/sp.mk|g' Android.mk
           fi
 
           # 4. Stealth Patching (Silent Mode)
-          # Chèn vào cuối file header để tránh lỗi stdio.h
+          # Footer injection để tránh lỗi cú pháp header
           sed -i '$a #define printf(...) (void)0' resetprop.hpp
           sed -i '$a #define fprintf(...) (void)0' resetprop.hpp
           sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
@@ -41,12 +41,12 @@ jobs:
       - name: Build with ndk-build
         run: |
           cd jni
-          # Truyền APP_PLATFORM trực tiếp vào dòng lệnh để ghi đè hoàn toàn
+          # Chạy ndk-build với APP_STL và APP_PLATFORM đồng bộ
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=Android.mk \
             APP_PLATFORM=android-33 \
-            APP_STL=libc++_static \
+            APP_STL=c++_static \
             NDK_LIBS_OUT=../libs \
             APP_ALLOW_MISSING_DEPS=true \
             V=1
