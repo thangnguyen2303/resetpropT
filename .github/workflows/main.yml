@@ -15,38 +15,37 @@ jobs:
 
       - name: Stealth Patching (Silent Mode)
         run: |
-          # Di chuyển vào jni để sửa file
           cd jni
           # Chèn Macro vô hiệu hóa log vào header chính
           sed -i '1i #define printf(...) (void)0' resetprop.hpp
           sed -i '1i #define fprintf(...) (void)0' resetprop.hpp
-          # Đổi tên nhận diện để tàng hình
+          # Đổi tên nhận diện tàng hình
           sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
 
       - name: Build with ndk-build
         run: |
-          # Chạy ndk-build từ thư mục gốc của dự án
-          # NDK sẽ tự tìm thư mục jni/ và file Android.mk bên trong
+          # Chạy ndk-build với cờ cho phép thiếu module (nếu sp.mk không định nghĩa libsystemproperties đúng cách)
+          # Hoặc nếu libsystemproperties là thư viện hệ thống đã có sẵn trong sysroot
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=./jni/Android.mk \
             APP_ABI=arm64-v8a \
             APP_PLATFORM=android-33 \
             NDK_OUT=./obj \
-            NDK_LIBS_OUT=./libs
+            NDK_LIBS_OUT=./libs \
+            APP_ALLOW_MISSING_DEPS=true \
+            V=1
 
       - name: Verify Binary
         run: |
-          # Sau khi build, file nằm trong libs/arm64-v8a/
-          # Tên file lấy từ LOCAL_MODULE trong Android.mk là resetprop
           if [ -f "./libs/arm64-v8a/resetprop" ]; then
             cp "./libs/arm64-v8a/resetprop" ./miui_sys_helper
             chmod +x ./miui_sys_helper
             file ./miui_sys_helper
-            ls -al ./miui_sys_helper
           else
-            echo "Build failed! Binary not found at ./libs/arm64-v8a/resetprop"
-            ls -R
+            echo "Build failed! Binary not found."
+            # Debug: Xem file sp.mk có nội dung gì
+            cat jni/sp.mk || echo "sp.mk not found"
             exit 1
           fi
 
