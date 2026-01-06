@@ -1,4 +1,4 @@
-name: Build Stealth ResetpropT Submodule Fix
+name: Build Stealth ResetpropT Submodule Force
 
 on:
   workflow_dispatch:
@@ -11,28 +11,32 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'thangnguyen2303/resetpropT'
-          submodules: 'recursive' # QUAN TRỌNG: Tải toàn bộ code của nanopb và system_properties
+          submodules: 'recursive'
           fetch-depth: 0
 
-      - name: Stealth Patching (Silent Mode)
+      - name: Patch and Build
         run: |
           cd jni
-          # Chèn Macro vô hiệu hóa log
+          
+          # 1. Stealth Patching: Silent mode
           sed -i '1i #define printf(...) (void)0' resetprop.hpp
           sed -i '1i #define fprintf(...) (void)0' resetprop.hpp
-          # Tàng hình tên định danh
           sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
 
-      - name: Build with ndk-build
-        run: |
-          # Giờ đây các thư mục đã có code, ndk-build sẽ chạy mượt mà
+          # 2. Sửa Android.mk: Đảm bảo đường dẫn sp.mk là chính xác
+          # Nếu sp.mk nằm trong thư mục submodule system_properties, ta phải sửa lại:
+          if [ -f "system_properties/sp.mk" ]; then
+             sed -i 's|include sp.mk|include system_properties/sp.mk|g' Android.mk
+          fi
+
+          # 3. Chạy ndk-build với quyền cưỡng ép
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
             NDK_PROJECT_PATH=. \
-            APP_BUILD_SCRIPT=./jni/Android.mk \
+            APP_BUILD_SCRIPT=Android.mk \
             APP_ABI=arm64-v8a \
             APP_PLATFORM=android-33 \
-            NDK_OUT=./obj \
-            NDK_LIBS_OUT=./libs \
+            APP_ALLOW_MISSING_DEPS=true \
+            NDK_LIBS_OUT=../libs \
             V=1
 
       - name: Verify Binary
@@ -41,12 +45,11 @@ jobs:
           if [ -f "$BINARY" ]; then
             cp "$BINARY" ./miui_sys_helper
             chmod +x ./miui_sys_helper
-            echo "SUCCESS: Binary created with submodules."
+            echo "SUCCESS: Stealth binary created."
             file ./miui_sys_helper
           else
-            echo "ERROR: Build failed. Check if submodules are empty:"
-            ls -la jni/nanopb
-            ls -la jni/system_properties
+            echo "ERROR: Build failed. Checking submodule content to debug:"
+            ls -R jni/system_properties
             exit 1
           fi
 
