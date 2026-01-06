@@ -1,4 +1,4 @@
-name: Build Stealth ResetpropT Final Fix
+name: Build Stealth ResetpropT Final Force
 
 on:
   workflow_dispatch:
@@ -14,34 +14,37 @@ jobs:
           submodules: 'recursive'
           fetch-depth: 0
 
-      - name: Patch and Build
+      - name: Patch Build Config
         run: |
           cd jni
           
-          # 1. Stealth Patching AN TOÀN: 
-          # Sử dụng $a để chèn vào CUỐI file resetprop.hpp
-          # Điều này đảm bảo header hệ thống đã load xong mới bị redefine printf
-          sed -i '$a #define printf(...) (void)0' resetprop.hpp
-          sed -i '$a #define fprintf(...) (void)0' resetprop.hpp
-          
-          # 2. Đổi tên nhận diện tàng hình
-          sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
+          # 1. ÉP LIÊN KẾT TĨNH LIBC++: Đây là bước quan trọng nhất
+          # Tạo file Application.mk nếu chưa có để cấu hình libc++_static
+          echo "APP_STL := libc++_static" > Application.mk
+          echo "APP_ABI := arm64-v8a" >> Application.mk
+          echo "APP_PLATFORM := android-33" >> Application.mk
 
-          # 3. Sửa đường dẫn sp.mk (đã xác định submodule ở jni/system_properties)
+          # 2. Sửa sp.mk (đường dẫn submodule)
           if [ -f "system_properties/sp.mk" ]; then
              sed -i 's|include sp.mk|include system_properties/sp.mk|g' Android.mk
           fi
 
-          # 4. Chạy ndk-build
-          # Thêm cờ -j cho phép build đa luồng nhanh hơn
+          # 3. Stealth Patching (Silent Mode)
+          # Chèn vào cuối file header để tránh lỗi stdio.h
+          sed -i '$a #define printf(...) (void)0' resetprop.hpp
+          sed -i '$a #define fprintf(...) (void)0' resetprop.hpp
+          sed -i 's/"resetprop"/"sys_helper"/g' resetprop.cpp || true
+
+      - name: Build with ndk-build
+        run: |
+          # Chạy ndk-build từ thư mục jni
+          cd jni
           ${ANDROID_NDK_LATEST_HOME}/ndk-build \
-            -j$(nproc) \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=Android.mk \
-            APP_ABI=arm64-v8a \
-            APP_PLATFORM=android-33 \
+            NDK_LIBS_OUT=../libs \
             APP_ALLOW_MISSING_DEPS=true \
-            NDK_LIBS_OUT=../libs
+            V=1
 
       - name: Verify Binary
         run: |
@@ -50,11 +53,11 @@ jobs:
             cp "$BINARY" ./miui_sys_helper
             chmod +x ./miui_sys_helper
             echo "SUCCESS: Stealth binary created."
-            ls -al ./miui_sys_helper
             file ./miui_sys_helper
+            # Kiểm tra xem có thực sự là static không
+            ldd ./miui_sys_helper || true 
           else
-            echo "ERROR: Build failed. Directory structure:"
-            ls -R
+            echo "ERROR: Build failed."
             exit 1
           fi
 
